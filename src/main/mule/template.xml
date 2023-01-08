@@ -1,0 +1,159 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns:validation="http://www.mulesoft.org/schema/mule/validation"
+	xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns:http="http://www.mulesoft.org/schema/mule/http"
+	xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xmlns:http-policy="http://www.mulesoft.org/schema/mule/http-policy"
+      xmlns:http-transform="http://www.mulesoft.org/schema/mule/http-policy-transform"
+      xsi:schemaLocation="
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+               http://www.mulesoft.org/schema/mule/http-policy http://www.mulesoft.org/schema/mule/http-policy/current/mule-http-policy.xsd
+               http://www.mulesoft.org/schema/mule/http-policy-transform http://www.mulesoft.org/schema/mule/http-policy-transform/current/mule-http-policy-transform.xsd
+               http://www.mulesoft.org/schema/mule/validation http://www.mulesoft.org/schema/mule/validation/current/mule-validation.xsd">
+
+	   <http-policy:proxy name="{{{policyId}}}-custom-policy">
+	   
+	    <http-policy:source>
+	      <!-- <try> -->
+		     <logger message="Start of custom policy: ${idp.url}" level="INFO" />
+		     <set-variable variableName="idpUrlVar" value="${idp.url}"/>
+	         <set-variable variableName="authTokenVar" value="#[attributes.headers['Authorization']]"/>
+	         <choice>
+	            <when expression="#[attributes.headers['Authorization'] != null]">
+	            <try>
+	               <http:request method="POST" doc:name="Request" doc:id="b48c7371-4665-4de6-a198-5a147cb0c088" config-ref="HTTP_Request_configuration" url="#[vars.idpUrlVar]" target="claimsOutput">
+	                  <http:body ><![CDATA[#["token=" ++ (vars.authTokenVar splitBy (/\s/))[1]]]]></http:body>
+	                   <http:headers>
+	                     #[{
+	                       'Accept': 'application/json',
+	                       'Content-Type' : 'text/plain'
+	                     }]
+	                   </http:headers>
+	                  
+	                  <http:response-validator>
+	                     <http:success-status-code-validator values="200..204" />
+	                  </http:response-validator>
+	               </http:request>
+			         <error-handler>
+			            <on-error-continue logException="true">
+			            <logger message='#[
+			                     output application/json
+			                     ---
+			                     {
+			                        resourceType: "custom authorizer",
+			                        issue: [
+			                        {
+			                           severity: "error",
+			                           message: error.errorMessage,
+			                           details: error.detailedDescription
+			                        }]
+			                     }]' level="ERROR" />
+			               <http-transform:set-response
+			                  statusCode="401">
+			                  <http-transform:body>#[
+			                     output application/json
+			                     ---
+			                     {
+			                        "error": "UNAUTHORIZED"
+			                     }]
+			                  </http-transform:body>
+			               </http-transform:set-response>
+			            </on-error-continue>
+			         </error-handler>
+	              </try>
+	               <logger message="*******  Log IdentityServer Response =  #[vars.claimsOutput]" level="INFO" />
+	               <set-variable variableName="isValid" value="#[vars.claimsOutput.customerId != null]" />
+	            </when>
+	            <otherwise>
+	               <set-variable variableName="isValid" value="#[false]" />
+	               <logger message="------- Missing Authorization Header - isValid : #[vars.isValid]" level="WARN" />
+	            </otherwise>
+	         </choice>
+	         <choice>
+	            <when expression="#[vars.isValid == true]" >
+						
+						<!-- Remove old unwanted headers  -->
+						<http-transform:remove-headers>
+		    				<http-transform:header-names>#[['customerId']]</http-transform:header-names>
+						</http-transform:remove-headers>
+						
+	               <http-policy:execute-next/>
+	            </when>
+	            <otherwise>
+	               <logger message="------- Avoid Flow execution" level="WARN" />
+	               <http-transform:set-response statusCode="401" reasonPhrase="UNAUTHORIZED">
+	                  <http-transform:body><![CDATA[#[output application/json
+											---
+											{
+												"error": "Unauthorized"
+											}]]]>
+					</http-transform:body>
+	               </http-transform:set-response>
+	           </otherwise>
+	         </choice>
+	         
+	         <!-- Global Error Handler -->
+	         <!-- <error-handler>
+	            <on-error-propagate logException="false">
+	            <logger message='#[
+	                     output application/json
+	                     -&#45;&#45;
+	                     {
+	                        resourceType: "custom authorizer",
+	                        issue: [
+	                        {
+	                           severity: "error",
+	                           message: error.errorMessage,
+	                           details: error.detailedDescription
+	                        }]
+	                     }]' level="ERROR" />
+	               <http-transform:set-response
+	                  statusCode="401">
+	                  <http-transform:body>#[
+	                     output application/json
+	                     -&#45;&#45;
+	                     {
+	                        "error": "Unauthorized"
+	                     }]
+	                  </http-transform:body>
+	               </http-transform:set-response>
+	            </on-error-propagate>
+	         </error-handler> -->
+	      <!-- </try> -->
+	   </http-policy:source>
+	
+	   <http-policy:operation>
+	      <choice>
+	         <when expression="#[vars.isValid == true]" >
+				
+				<!-- Remove old unwanted headers  -->
+				<http-transform:remove-headers>
+		    		<http-transform:header-names>#[['customerId']]</http-transform:header-names>
+				</http-transform:remove-headers>
+	            
+	            <http-transform:add-request-headers>
+	               <http-transform:headers>#[
+	               {
+	                 'customerId': vars.claimsOutput.customerId
+	               }
+	               ]</http-transform:headers>
+	            </http-transform:add-request-headers>
+	            <http-policy:execute-next/>
+	         </when>
+	         <otherwise>
+	            <logger message="------- Authorization Invalid - skip DAPI call" level="WARN" />
+	         </otherwise>
+	      </choice>
+	   </http-policy:operation>
+	   
+	  </http-policy:proxy>
+
+
+    <!-- Global Configuration -->
+	<http:request-config name="HTTP_Request_configuration" doc:name="HTTP Request configuration" doc:id="e4b7dbe3-e944-4ae0-92c0-5d374710a4d5" >
+		<http:request-connection host="test.modere.com" port="80"/>
+	</http:request-config>
+	<configuration-properties doc:name="Configuration properties" doc:id="8ebb0ca1-71b4-4d26-87c4-da3e177df65e" file="config.yaml" />
+</mule>
