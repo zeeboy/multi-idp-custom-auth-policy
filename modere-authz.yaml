@@ -1,0 +1,11 @@
+id: modere-authz
+name: modere-authz
+description: Modere custom authorizer policy
+category: Custom
+type: custom
+resourceLevelSupported: true
+encryptionSupported: false
+standalone: true
+requiredCharacteristics: []
+providedCharacteristics: []
+configuration: []
